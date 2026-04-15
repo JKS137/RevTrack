@@ -1,0 +1,144 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: name (string), email (string), role (string: admin|member), hourly_rate (number), is_active (bool)
+    //
+    // Collection: clients
+    // Fields: name (string), email (string), status (string: active|archived)
+    //
+    // Collection: projects
+    // Fields: client_id (string), name (string), type (string), status (string)
+    //
+    // Collection: tasks
+    // Fields: project_id (string), title (string), is_billable (bool), status (string), assigned_to (string)
+    //
+    // Collection: timeLogs
+    // Fields: task_id (string), project_id (string), client_id (string), user_id (string), logged_hours (number), date (string), is_invoiced (bool)
+    //
+    // Collection: invoices
+    // Fields: client_id (string), invoice_number (string), status (string), total (number)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "shjanabdul2@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.user_id;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && data.role in ['admin', 'member'];
+    }
+
+    function isValidClient(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.status in ['active', 'archived'];
+    }
+
+    function isValidProject(data) {
+      return data.client_id is string && data.name is string &&
+             data.type in ['hourly', 'fixed', 'retainer'] &&
+             data.status in ['active', 'on_hold', 'completed'];
+    }
+
+    function isValidTask(data) {
+      return data.project_id is string && data.title is string &&
+             data.is_billable is bool &&
+             data.status in ['pending', 'in_progress', 'completed'];
+    }
+
+    function isValidTimeLog(data) {
+      return data.task_id is string && data.project_id is string &&
+             data.client_id is string && data.user_id is string &&
+             data.logged_hours is number && data.logged_hours > 0 &&
+             data.date is string;
+    }
+
+    function isValidInvoice(data) {
+      return data.client_id is string && data.invoice_number is string &&
+             data.status in ['draft', 'sent', 'paid', 'overdue'] &&
+             data.total is number;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role));
+    }
+
+    match /clients/{clientId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidClient(request.resource.data);
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() && isValidProject(request.resource.data);
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTask(request.resource.data) && (isAdmin() || request.resource.data.assigned_to == request.auth.uid);
+      allow update: if isAuthenticated() && isValidTask(request.resource.data) && (isAdmin() || resource.data.assigned_to == request.auth.uid);
+    }
+
+    match /timeLogs/{logId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.user_id == request.auth.uid);
+      allow create: if isAuthenticated() && isValidTimeLog(request.resource.data) && (isAdmin() || request.resource.data.user_id == request.auth.uid);
+      allow update: if isAuthenticated() && isValidTimeLog(request.resource.data) && (isAdmin() || (resource.data.user_id == request.auth.uid && !resource.data.is_invoiced));
+      allow delete: if isAuthenticated() && (isAdmin() || (resource.data.user_id == request.auth.uid && !resource.data.is_invoiced));
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidInvoice(request.resource.data);
+    }
+
+    match /invoiceLineItems/{itemId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}
