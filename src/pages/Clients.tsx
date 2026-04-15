@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getClients, addClient, updateClient } from '../services/firestore';
 import { Client } from '../types';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Mail, Phone, MoreHorizontal, Edit2, Archive } from 'lucide-react';
+import { Plus, Search, Mail, Phone, MoreHorizontal, Edit2, Archive, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
@@ -15,6 +15,10 @@ export default function Clients() {
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState('');
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Client; direction: 'asc' | 'desc' } | null>({
+    key: 'name',
+    direction: 'asc'
+  });
   const [newClient, setNewClient] = useState<Partial<Client>>({
     name: '',
     email: '',
@@ -27,6 +31,44 @@ export default function Clients() {
   useEffect(() => {
     return getClients(setClients);
   }, []);
+
+  const handleSort = (key: keyof Client) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedClients = useMemo(() => {
+    let items = [...clients];
+    
+    // Search filter
+    if (search) {
+      items = items.filter(c => 
+        c.name.toLowerCase().includes(search.toLowerCase()) || 
+        c.email?.toLowerCase().includes(search.toLowerCase())
+      );
+    }
+
+    // Sorting
+    if (sortConfig) {
+      items.sort((a, b) => {
+        const aValue = a[sortConfig.key] || '';
+        const bValue = b[sortConfig.key] || '';
+        
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    
+    return items;
+  }, [clients, search, sortConfig]);
 
   const handleAddClient = async () => {
     if (!newClient.name) return toast.error("Client name is required");
@@ -43,10 +85,10 @@ export default function Clients() {
     }
   };
 
-  const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.email?.toLowerCase().includes(search.toLowerCase())
-  );
+  const SortIcon = ({ column }: { column: keyof Client }) => {
+    if (sortConfig?.key !== column) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />;
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -102,15 +144,35 @@ export default function Clients() {
         <Table>
           <TableHeader className="bg-neutral-50">
             <TableRow>
-              <TableHead className="w-[300px]">Client</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Billing</TableHead>
+              <TableHead className="w-[300px] cursor-pointer hover:text-neutral-900" onClick={() => handleSort('name')}>
+                <div className="flex items-center">
+                  Client
+                  <SortIcon column="name" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('email')}>
+                <div className="flex items-center">
+                  Contact
+                  <SortIcon column="email" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('status')}>
+                <div className="flex items-center">
+                  Status
+                  <SortIcon column="status" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('billing_currency')}>
+                <div className="flex items-center">
+                  Billing
+                  <SortIcon column="billing_currency" />
+                </div>
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredClients.map((client) => (
+            {sortedClients.map((client) => (
               <TableRow key={client.id} className="hover:bg-neutral-50/50 transition-colors">
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -171,7 +233,7 @@ export default function Clients() {
                 </TableCell>
               </TableRow>
             ))}
-            {filteredClients.length === 0 && (
+            {sortedClients.length === 0 && (
               <TableRow>
                 <TableCell colSpan={5} className="h-32 text-center text-neutral-400 italic">
                   No clients found

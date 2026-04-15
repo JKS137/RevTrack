@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getPayments, getInvoices, addPayment, getClients } from '../services/firestore';
 import { Payment, Invoice, Client } from '../types';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, CreditCard, Search, Calendar as CalendarIcon, CheckCircle2 } from 'lucide-react';
+import { Plus, CreditCard, Search, Calendar as CalendarIcon, CheckCircle2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { auth } from '../firebase';
@@ -17,6 +17,11 @@ export default function Payments() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({
+    key: 'payment_date',
+    direction: 'desc'
+  });
   
   const [newPayment, setNewPayment] = useState<Partial<Payment>>({
     invoice_id: '',
@@ -36,6 +41,57 @@ export default function Payments() {
       unsubClients();
     };
   }, []);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedPayments = useMemo(() => {
+    let items = [...payments];
+    
+    if (search) {
+      items = items.filter(p => {
+        const invoice = invoices.find(i => i.id === p.invoice_id);
+        const client = clients.find(c => c.id === invoice?.client_id);
+        return invoice?.invoice_number.toLowerCase().includes(search.toLowerCase()) || 
+               client?.name.toLowerCase().includes(search.toLowerCase());
+      });
+    }
+
+    if (sortConfig) {
+      items.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (sortConfig.key === 'invoice_number') {
+          aValue = invoices.find(i => i.id === a.invoice_id)?.invoice_number || '';
+          bValue = invoices.find(i => i.id === b.invoice_id)?.invoice_number || '';
+        } else if (sortConfig.key === 'client_name') {
+          const invA = invoices.find(i => i.id === a.invoice_id);
+          const invB = invoices.find(i => i.id === b.invoice_id);
+          aValue = clients.find(c => c.id === invA?.client_id)?.name || '';
+          bValue = clients.find(c => c.id === invB?.client_id)?.name || '';
+        } else {
+          aValue = (a as any)[sortConfig.key];
+          bValue = (b as any)[sortConfig.key];
+        }
+        
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    
+    return items;
+  }, [payments, search, sortConfig, invoices, clients]);
 
   const handleAddPayment = async () => {
     if (!newPayment.invoice_id || !newPayment.amount) {
@@ -61,12 +117,22 @@ export default function Payments() {
     }
   };
 
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig?.key !== column) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />;
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-          <Input placeholder="Search payments..." className="pl-10 bg-white" />
+          <Input 
+            placeholder="Search payments..." 
+            className="pl-10 bg-white" 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
 
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
@@ -155,16 +221,41 @@ export default function Payments() {
         <Table>
           <TableHeader className="bg-neutral-50">
             <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Invoice</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Method</TableHead>
-              <TableHead>Amount</TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('payment_date')}>
+                <div className="flex items-center">
+                  Date
+                  <SortIcon column="payment_date" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('invoice_number')}>
+                <div className="flex items-center">
+                  Invoice
+                  <SortIcon column="invoice_number" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('client_name')}>
+                <div className="flex items-center">
+                  Client
+                  <SortIcon column="client_name" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('payment_method')}>
+                <div className="flex items-center">
+                  Method
+                  <SortIcon column="payment_method" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('amount')}>
+                <div className="flex items-center">
+                  Amount
+                  <SortIcon column="amount" />
+                </div>
+              </TableHead>
               <TableHead className="text-right">Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {payments.map((payment) => {
+            {sortedPayments.map((payment) => {
               const invoice = invoices.find(i => i.id === payment.invoice_id);
               const client = clients.find(c => c.id === invoice?.client_id);
               
@@ -189,7 +280,7 @@ export default function Payments() {
                 </TableRow>
               );
             })}
-            {payments.length === 0 && (
+            {sortedPayments.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="h-32 text-center text-neutral-400 italic">
                   No payments recorded yet

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getInvoices, getClients, getTimeLogs, createInvoice, getProjects } from '../services/firestore';
 import { Invoice, Client, TimeLog, Project, InvoiceLineItem } from '../types';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, FileText, Search, Filter, Download, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, FileText, Search, Filter, Download, Send, CheckCircle2, AlertCircle, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { format, addDays } from 'date-fns';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +22,11 @@ export default function Invoices() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [unbilledLogs, setUnbilledLogs] = useState<TimeLog[]>([]);
+  const [search, setSearch] = useState('');
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({
+    key: 'issued_date',
+    direction: 'desc'
+  });
   
   const [newInvoice, setNewInvoice] = useState<Partial<Invoice>>({
     invoice_number: `INV-${Date.now().toString().slice(-6)}`,
@@ -51,6 +56,51 @@ export default function Invoices() {
       setUnbilledLogs([]);
     }
   }, [selectedClientId, timeLogs]);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedInvoices = useMemo(() => {
+    let items = [...invoices];
+    
+    if (search) {
+      items = items.filter(inv => {
+        const clientName = clients.find(c => c.id === inv.client_id)?.name || '';
+        return inv.invoice_number.toLowerCase().includes(search.toLowerCase()) || 
+               clientName.toLowerCase().includes(search.toLowerCase());
+      });
+    }
+
+    if (sortConfig) {
+      items.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (sortConfig.key === 'client_name') {
+          aValue = clients.find(c => c.id === a.client_id)?.name || '';
+          bValue = clients.find(c => c.id === b.client_id)?.name || '';
+        } else {
+          aValue = (a as any)[sortConfig.key];
+          bValue = (b as any)[sortConfig.key];
+        }
+        
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1;
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1;
+        }
+        return 0;
+      });
+    }
+    
+    return items;
+  }, [invoices, search, sortConfig, clients]);
 
   const handleCreateInvoice = async () => {
     if (!selectedClientId || unbilledLogs.length === 0) {
@@ -101,12 +151,22 @@ export default function Invoices() {
     }
   };
 
+  const SortIcon = ({ column }: { column: string }) => {
+    if (sortConfig?.key !== column) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />;
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-          <Input placeholder="Search invoices..." className="pl-10 bg-white" />
+          <Input 
+            placeholder="Search invoices..." 
+            className="pl-10 bg-white" 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
 
         <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
@@ -186,17 +246,47 @@ export default function Invoices() {
         <Table>
           <TableHeader className="bg-neutral-50">
             <TableRow>
-              <TableHead>Invoice #</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Issued Date</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('invoice_number')}>
+                <div className="flex items-center">
+                  Invoice #
+                  <SortIcon column="invoice_number" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('client_name')}>
+                <div className="flex items-center">
+                  Client
+                  <SortIcon column="client_name" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('issued_date')}>
+                <div className="flex items-center">
+                  Issued Date
+                  <SortIcon column="issued_date" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('due_date')}>
+                <div className="flex items-center">
+                  Due Date
+                  <SortIcon column="due_date" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('total')}>
+                <div className="flex items-center">
+                  Amount
+                  <SortIcon column="total" />
+                </div>
+              </TableHead>
+              <TableHead className="cursor-pointer hover:text-neutral-900" onClick={() => handleSort('status')}>
+                <div className="flex items-center">
+                  Status
+                  <SortIcon column="status" />
+                </div>
+              </TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {invoices.map((inv) => (
+            {sortedInvoices.map((inv) => (
               <TableRow key={inv.id} className="hover:bg-neutral-50/50 transition-colors">
                 <TableCell className="font-bold text-neutral-900">{inv.invoice_number}</TableCell>
                 <TableCell className="font-medium">{clients.find(c => c.id === inv.client_id)?.name || '...'}</TableCell>
@@ -238,7 +328,7 @@ export default function Invoices() {
                 </TableCell>
               </TableRow>
             ))}
-            {invoices.length === 0 && (
+            {sortedInvoices.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="h-32 text-center text-neutral-400 italic">
                   No invoices found
